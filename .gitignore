@@ -1,0 +1,46 @@
+# Virtual Environment
+venv/
+.venv/
+ENV/
+
+# AI Models & Large Weights
+models/
+gfpgan/weights/
+**/weights/
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Built targets (Maven/Java)
+target/
+*.class
+
+# Databases
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# Project archives / backups
+*.zip
+*.tar.gz
+*.rar
+
+# IDE and System Files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary check scripts
+scratch/check_sizes.ps1

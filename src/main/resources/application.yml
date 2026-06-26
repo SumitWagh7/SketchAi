@@ -1,0 +1,24 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sketchai
+  datasource:
+    url: jdbc:h2:file:./data/sketchai;DB_CLOSE_ON_EXIT=FALSE;AUTO_RECONNECT=TRUE;MODE=MySQL
+    username: sa
+    password: password
+    driver-class-name: org.h2.Driver
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+app:
+  jwt:
+    secret: sketchai_super_secret_key_that_is_long_enough_for_hs256_algorithm_to_be_secure_1234567890
+    expiration-ms: 86400000 # 24 hours

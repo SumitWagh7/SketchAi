@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SketchAI - Turn Photos into Masterpieces</title>
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0"></script>
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" type="text/javascript"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="flex flex-col items-center">
+
+    <!-- 1. LANDING PAGE SECTION -->
+    <div id="landingView" class="w-full flex flex-col items-center transition-all duration-700">
+        <div class="blob" style="top: -100px; right: -100px;"></div>
+        <div class="blob" style="bottom: 100px; left: -100px; animation-delay: -5s;"></div>
+
+        <nav
+            class="fixed top-6 w-[90%] max-w-5xl glass-ui px-8 py-4 flex justify-between items-center z-50 rounded-2xl">
+            <div class="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-xs">S</div>
+                SketchAI
+            </div>
+
+            <button id="btnLaunch"
+                class="bg-slate-900 text-white px-5 py-2 rounded-xl text-sm font-bold hover:scale-105 transition-transform active:scale-95">
+                Start Sketching
+            </button>
+        </nav>
+
+        <header class="mt-40 text-center px-4 max-w-4xl reveal-on-scroll" id="hero">
+            <span
+                class="px-4 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold uppercase tracking-wider border border-blue-100 mb-6 inline-block">
+            </span>
+            <h1 class="text-5xl md:text-7xl font-extrabold mb-6 text-slate-900 leading-tight">
+                Artistic Vision.<br>Digital Precision.
+            </h1>
+            <p class="text-lg text-slate-500 mb-10 max-w-xl mx-auto leading-relaxed">
+                Upload your memories and watch our neural network transform pixels into professional graphite and
+                charcoal sketches.
+            </p>
+        </header>
+
+        <section class="w-full max-w-5xl px-4 mb-32 reveal-on-scroll">
+            <div class="glass-ui p-3 rounded-[32px] shadow-2xl overflow-hidden relative group">
+                <div class="relative aspect-video rounded-[24px] overflow-hidden bg-slate-200 hero-img-container">
+                    <div class="scan-line"></div>
+                    <div class="absolute inset-0 bg-cover bg-center"
+                        style="background-image: url('C:\Users\ASUS\Desktop\scatchAI\SketchAi1.png');">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl w-full px-4 mb-48 reveal-on-scroll">
+            <div class="glass-ui p-8 rounded-3xl hover:-translate-y-2 transition-transform cursor-pointer">
+                <div class="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-2xl mb-6">🖋️</div>
+                <h3 class="text-xl font-bold mb-2">Cross-Hatching</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Mimics classical layers of fine lines.</p>
+            </div>
+            <div class="glass-ui p-8 rounded-3xl hover:-translate-y-2 transition-transform cursor-pointer">
+                <div class="w-12 h-12 bg-purple-100 rounded-2xl flex items-center justify-center text-2xl mb-6">🌫️
+                </div>
+                <h3 class="text-xl font-bold mb-2">Smudge Blur</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Digital graphite blending algorithms.</p>
+            </div>
+            <div class="glass-ui p-8 rounded-3xl hover:-translate-y-2 transition-transform cursor-pointer">
+                <div class="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-2xl mb-6">📏
+                </div>
+                <h3 class="text-xl font-bold mb-2">Edge Weight</h3>
+                <p class="text-slate-500 text-sm leading-relaxed">Varying thickness based on depth.</p>
+            </div>
+        </section>
+    </div>
+
+    <!-- 2. LOGIN SECTION -->
+    <div id="authContainer" class="transition-all duration-700">
+        <div class="auth-card crystal-glass p-12 rounded-[40px] text-center">
+            <div class="brand mb-8">
+                <i class="fas fa-thin fa-compass-drafting text-5xl text-white"></i>
+                <h1 class="text-white text-3xl font-light tracking-tighter mt-4">Studio AI</h1>
+            </div>
+            <form id="authForm">
+                <input type="email" placeholder="Professional Email" required
+                    class="w-full p-4 mb-3 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30">
+                <input type="password" placeholder="Access Key" required
+                    class="w-full p-4 mb-6 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30">
+                <button type="submit" class="btn-ios">Connect Session</button>
+            </form>
+            <p class="text-[10px] text-white/40 mt-8 tracking-widest uppercase">Crystal Glass Engine v5.0</p>
+        </div>
+    </div>
+
+    <!-- 3. STUDIO WORKSPACE -->
+    <div id="studioBg">
+        <div class="mesh-orb"
+            style="width: 80vw; height: 80vw; background: radial-gradient(circle, #4f46e5 0%, transparent 70%); top: -20%; left: -10%;">
+        </div>
+        <div class="mesh-orb"
+            style="width: 70vw; height: 70vw; background: radial-gradient(circle, #9333ea 0%, transparent 70%); bottom: -10%; right: -10%;">
+        </div>
+    </div>
+
+    <div id="appWorkspace" class="crystal-glass">
+        <aside class="sidebar">
+            <div class="text-white font-bold text-xl flex items-center gap-3">
+                <i class="fas fa-compass-drafting"></i> STUDIO
+            </div>
+            <div class="p-8 border-2 border-dashed border-white/10 rounded-3xl text-center cursor-pointer hover:bg-white/5 transition-colors"
+                id="triggerUpload">
+                <i class="fas fa-cloud-arrow-up text-3xl text-white/20 mb-3"></i>
+                <div class="text-[10px] font-bold text-white/50 tracking-widest">UPLOAD ASSET</div>
+                <input type="file" id="imageInput" accept="image/*" hidden>
+            </div>
+            <div class="text-[10px] font-black text-white/30 tracking-widest mt-4">CLASSIC</div>
+            <button id="btnSketch" class="tool-btn" disabled><i class="fas fa-wand-sparkles"></i> Line
+                Extraction</button>
+            <button id="btnCutout" class="tool-btn" disabled><i class="fas fa-object-group"></i> AI Masking</button>
+
+            <div class="flex flex-col gap-2 mt-1">
+                <button id="btnGhibli" class="tool-btn" disabled><i class="fas fa-palette"></i> Ghibli Art
+                    Style</button>
+                <textarea id="promptInput"
+                    class="w-full p-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white/90 outline-none focus:border-white/30 hidden resize-none"
+                    rows="3">Transform this image into a beautiful Studio Ghibli anime scene. Use soft lighting, pastel colors, hand-drawn textures, and a whimsical atmosphere.</textarea>
+            </div>
+
+            <div class="text-[10px] font-black text-purple-400/50 tracking-widest mt-4">INTELLIGENCE</div>
+            <button id="btnCaption" class="tool-btn gemini-btn" disabled><i class="fas fa-comment-dots"></i> Magic
+                Caption ✨</button>
+            <button id="btnSuggest" class="tool-btn gemini-btn" disabled><i class="fas fa-lightbulb"></i> Edit Strategy
+                ✨</button>
+            <button id="btnExport" class="btn-ios mt-auto" style="display:none;">Finalize PNG</button>
+        </aside>
+
+        <main class="main-view">
+            <div class="loader" id="mainLoader">
+                <div class="spinner"></div>
+                <p id="loaderText" class="text-white text-[10px] font-bold tracking-widest mt-5">PROCESSING</p>
+            </div>
+            <div id="empty" class="opacity-5 text-center">
+                <i class="fas fa-signature text-9xl text-white mb-6"></i>
+                <h1 class="text-white text-6xl font-thin tracking-[20px]">STUDIO</h1>
+            </div>
+            <canvas id="outputCanvas"></canvas>
+            <div id="aiOutput"
+                class="absolute bottom-10 left-10 right-10 p-6 rounded-3xl bg-black/50 backdrop-blur-xl border border-white/10 hidden">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold tracking-widest text-white/40 uppercase">AI Insight</span>
+                    <button id="btnCloseAi" class="text-white/40 hover:text-white"><i class="fas fa-times"></i></button>
+                </div>
+                <p id="aiContent" class="text-white/90 text-sm leading-relaxed"></p>
+            </div>
+        </main>
+    </div>
+
+    <!-- ES6 Module Entry Point -->
+    <script type="module" src="js/main.js"></script>
+</body>
+
+</html>

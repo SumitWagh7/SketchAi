@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SketchAI - Turn Photos into Masterpieces</title>
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0"></script>
+    <script async src="https://docs.opencv.org/4.5.4/opencv.js" type="text/javascript"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --accent: #8b5cf6;
+            --bg-dark: #020205;
+            --glass: rgba(255, 255, 255, 0.015); 
+            --glass-active: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text: #ffffff;
+            --text-dim: rgba(255, 255, 255, 0.4);
+            --ios-blur: blur(60px) saturate(220%);
+            --spring: cubic-bezier(0.16, 1, 0.3, 1);
+            --gemini-gradient: linear-gradient(135deg, #4285f4, #9b72cb, #d96570);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            margin: 0;
+            overflow-x: hidden;
+            transition: background 1s var(--spring);
+        }
+
+        body.studio-active {
+            background-color: var(--bg-dark);
+            color: var(--text);
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0.05;
+            z-index: 9999;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        .glass-ui {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+        }
+
+        .scan-line {
+            position: absolute;
+            left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            box-shadow: 0 0 15px var(--primary);
+            z-index: 10;
+            animation: scan 3s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            5% { opacity: 1; }
+            95% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        .blob {
+            position: absolute;
+            width: 400px; height: 400px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%);
+            filter: blur(80px);
+            border-radius: 50%;
+            z-index: -1;
+            animation: pulse 10s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1) translate(0, 0); }
+            to { transform: scale(1.2) translate(50px, 50px); }
+        }
+
+        .crystal-glass {
+            background: var(--glass);
+            backdrop-filter: var(--ios-blur);
+            -webkit-backdrop-filter: var(--ios-blur);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        #authContainer {
+            display: none; width: 100%; max-width: 420px;
+            padding: 24px; z-index: 100; opacity: 0;
+            transform: translateY(20px);
+        }
+
+        #appWorkspace {
+            display: none; width: 96vw; max-width: 1400px;
+            height: 92vh; border-radius: 44px; overflow: hidden;
+            grid-template-columns: 340px 1fr; z-index: 100;
+        }
+
+        .sidebar { padding: 35px; border-right: 1px solid var(--glass-border); display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+        .main-view { padding: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        
+        .tool-btn {
+            background: rgba(255, 255, 255, 0.03); color: white;
+            border: 1px solid var(--glass-border); padding: 15px;
+            border-radius: 18px; font-weight: 600; display: flex;
+            align-items: center; gap: 12px; cursor: pointer; font-size: 0.85rem;
+            text-align: left;
+            transition: all 0.2s var(--spring);
+        }
+        .tool-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); transform: translateX(5px); }
+        .tool-btn:active:not(:disabled) { transform: scale(0.98); }
+        .gemini-btn { background: var(--gemini-gradient); border: none; font-weight: 700; }
+
+        canvas {
+            max-width: 100%; max-height: 85%; border-radius: 28px;
+            box-shadow: 0 60px 120px rgba(0,0,0,0.7); display: none;
+        }
+
+        .loader {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(25px); display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; border-radius: 44px;
+        }
+
+        .btn-ios { width: 100%; padding: 18px; border-radius: 20px; border: none; font-weight: 700; cursor: pointer; background: #fff; color: #000; }
+        
+        .spinner {
+            width: 44px; height: 44px;
+            border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid white;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        #studioBg { display: none; position: fixed; inset: 0; z-index: -1; background: #000; }
+        .mesh-orb { position: absolute; border-radius: 50%; mix-blend-mode: screen; filter: blur(120px); opacity: 0.6; animation: float 40s infinite ease-in-out; }
+        @keyframes float { 0%, 100% { transform: translate(0,0); } 50% { transform: translate(10vw, 10vh); } }
+    </style>
+</head>
+<body class="flex flex-col items-center">
+
+    <!-- 1. LANDING PAGE SECTION -->
+    <div id="landingView" class="w-full flex flex-col items-center">
+        <div class="blob" style="top: -100px; right: -100px;"></div>
+        <div class="blob" style="bottom: 100px; left: -100px; animation-delay: -5s;"></div>
+
+        <nav class="fixed top-6 w-[90%] max-w-5xl glass-ui px-8 py-4 flex justify-between items-center z-50 rounded-2xl">
+            <div class="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-xs">S</div>
+                SketchAI
+            </div>
+
+            <button onclick="goToLogin()" class="bg-slate-900 text-white px-5 py-2 rounded-xl text-sm font-bold hover:scale-105 transition-transform active:scale-95">
+                Start Sketching
+            </button>
+        </nav>
+
+        <header class="mt-40 text-center px-4 max-w-4xl" id="hero">
+
+            <h1 class="text-5xl md:text-7xl font-extrabold mb-6 text-slate-900 leading-tight">
+                Artistic Vision.<br>Digital Precision.
+            </h1>
+            <p class="text-lg text-slate-500 mb-10 max-w-xl mx-auto leading-relaxed">
+                Upload your memories and watch our neural network transform pixels into professional graphite and charcoal sketches.
+            </p>
+        </header>
+
+        <section class="w-full max-w-5xl px-4 mb-32">
+            <div class="glass-ui p-3 rounded-[32px] shadow-2xl overflow-hidden relative group">
+                <div class="relative aspect-video rounded-[24px] overflow-hidden bg-slate-200">
+                    <div class="scan-line"></div>
+                    <div class="absolute inset-0 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=2000&auto=format&fit=crop');">
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 2. LOGIN & REGISTRATION SECTION -->
+    <div id="authContainer">
+        <div class="auth-card crystal-glass p-8 rounded-[40px] text-center relative max-h-[85vh] overflow-y-auto w-full max-w-md mx-auto no-scrollbar">
+            <div class="brand mb-6">
+                <i class="fas fa-thin fa-compass-drafting text-4xl text-white"></i>
+                <h1 class="text-white text-2xl font-light tracking-tighter mt-2">SketchAi Studio</h1>
+            </div>
+            
+            <div class="flex gap-2 mb-6 p-1 bg-white/5 rounded-2xl border border-white/10">
+                <button id="tabLogin" class="flex-1 py-2 rounded-xl text-sm font-bold bg-white text-black transition-all" onclick="switchAuthTab('login')">Login</button>
+                <button id="tabRegister" class="flex-1 py-2 rounded-xl text-sm font-bold text-white/50 hover:text-white transition-all" onclick="switchAuthTab('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm" onsubmit="handleLogin(event)" class="text-left">
+                <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">EMAIL</label>
+                <input type="email" id="loginEmail" required class="w-full p-4 mb-4 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                
+                <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">PASSWORD</label>
+                <input type="password" id="loginPassword" required class="w-full p-4 mb-6 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                
+                <button type="submit" class="btn-ios flex justify-center items-center gap-2">
+                    <span id="loginBtnText">Connect Session</span>
+                    <i class="fas fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+
+            <!-- Registration Form -->
+            <form id="registerForm" onsubmit="handleRegister(event)" class="text-left hidden">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">USERNAME</label>
+                        <input type="text" id="regUsername" required pattern="^[a-zA-Z0-9_]{3,20}$" title="3-20 characters, letters, numbers, underscores only" class="w-full p-3 mb-3 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">PHONE</label>
+                        <input type="tel" id="regPhone" required pattern="^[0-9]{10}$" title="Exactly 10 digits" class="w-full p-3 mb-3 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                    </div>
+                </div>
+
+                <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">EMAIL</label>
+                <input type="email" id="regEmail" required class="w-full p-3 mb-3 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                
+                <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">PASSWORD</label>
+                <input type="password" id="regPassword" required oninput="checkPasswordStrength()" class="w-full p-3 mb-1 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                
+                <!-- Password Strength Meter -->
+                <div class="flex gap-1 h-1 mb-3 px-2">
+                    <div id="str1" class="flex-1 rounded-full bg-white/10"></div>
+                    <div id="str2" class="flex-1 rounded-full bg-white/10"></div>
+                    <div id="str3" class="flex-1 rounded-full bg-white/10"></div>
+                    <div id="str4" class="flex-1 rounded-full bg-white/10"></div>
+                </div>
+                
+                <label class="text-[10px] text-white/50 font-bold tracking-widest ml-2 mb-1 block">CONFIRM PASSWORD</label>
+                <input type="password" id="regConfirmPassword" required class="w-full p-3 mb-4 rounded-2xl bg-white/5 border border-white/10 text-white outline-none focus:border-white/30 text-sm">
+                
+                <div class="flex items-center gap-3 mb-6 px-2">
+                    <input type="checkbox" id="regTerms" required class="w-4 h-4 rounded bg-white/5 border-white/10 accent-blue-500 cursor-pointer">
+                    <label for="regTerms" class="text-xs text-white/60 cursor-pointer">I accept the terms & conditions</label>
+                </div>
+
+                <button type="submit" class="btn-ios flex justify-center items-center gap-2">
+                    <span id="regBtnText">Create Account</span>
+                    <i class="fas fa-user-plus text-xs"></i>
+                </button>
+            </form>
+
+            <div id="authError" class="mt-4 text-red-400 text-xs hidden p-2 bg-red-500/10 rounded-lg border border-red-500/20"></div>
+            
+            <p class="text-[10px] text-white/20 mt-8 tracking-widest uppercase font-bold">Crystal Glass Engine v5.0</p>
+        </div>
+    </div>
+    
+    <!-- Toast Notification System -->
+    <div id="toastContainer" class="fixed top-6 right-6 z-[9999] flex flex-col gap-3"></div>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .toast { transform: translateX(120%); transition: transform 0.4s var(--spring); }
+        .toast.show { transform: translateX(0); }
+    </style>
+
+
+    <!-- 3. STUDIO WORKSPACE -->
+    <div id="studioBg">
+        <div class="mesh-orb" style="width: 80vw; height: 80vw; background: radial-gradient(circle, #4f46e5 0%, transparent 70%); top: -20%; left: -10%;"></div>
+        <div class="mesh-orb" style="width: 70vw; height: 70vw; background: radial-gradient(circle, #9333ea 0%, transparent 70%); bottom: -10%; right: -10%;"></div>
+    </div>
+
+    <div id="appWorkspace" class="crystal-glass">
+        <aside class="sidebar">
+            <div class="text-white font-bold text-xl flex items-center gap-3">
+                <i class="fas fa-compass-drafting"></i> STUDIO
+            </div>
+            <div class="p-8 border-2 border-dashed border-white/10 rounded-3xl text-center cursor-pointer hover:bg-white/5 transition-colors" id="triggerUpload">
+                <i class="fas fa-cloud-arrow-up text-3xl text-white/20 mb-3"></i>
+                <div class="text-[10px] font-bold text-white/50 tracking-widest">UPLOAD ASSET</div>
+                <input type="file" id="imageInput" accept="image/*" hidden>
+            </div>
+            <div class="text-[10px] font-black text-white/30 tracking-widest mt-4">ACCOUNT</div>
+            <button id="btnDashboard" class="tool-btn w-full justify-between" onclick="navigate('/dashboard')">
+                <div class="flex items-center gap-3"><i class="fas fa-chart-pie text-blue-400"></i> Dashboard</div>
+                <i class="fas fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button id="btnProfile" class="tool-btn w-full justify-between" onclick="navigate('/profile')">
+                <div class="flex items-center gap-3"><i class="fas fa-user text-emerald-400"></i> Profile</div>
+                <i class="fas fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button id="btnSettings" class="tool-btn w-full justify-between" onclick="navigate('/settings')">
+                <div class="flex items-center gap-3"><i class="fas fa-cog text-purple-400"></i> Settings</div>
+                <i class="fas fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <div class="text-[10px] font-black text-white/30 tracking-widest mt-4">AI EDITING</div>
+            <button id="btnSketch" class="tool-btn" disabled><i class="fas fa-wand-sparkles"></i> Line Extraction</button>
+            <button id="btnSketchEnhance" class="tool-btn" disabled><i class="fas fa-magic"></i> AI Sketch Enhance</button>
+            <button id="btnCutout" class="tool-btn" disabled><i class="fas fa-user-slash"></i> AI Background Removal</button>
+            <button id="btnBgReplace" class="tool-btn" disabled><i class="fas fa-image"></i> AI BG Replacement</button>
+            <button id="btnInpaint" class="tool-btn" disabled><i class="fas fa-eraser"></i> AI Object Removal</button>
+            <div class="flex flex-col gap-2">
+                <button id="btnUpscale" class="tool-btn" disabled><i class="fas fa-expand"></i> AI Upscale</button>
+                <div id="upscaleOptions" class="flex gap-4 justify-start px-2 text-xs text-white/50">
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="upscaleFactor" value="2" checked class="accent-blue-500"> 2X
+                    </label>
+                    <label class="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="upscaleFactor" value="4" class="accent-blue-500"> 4X
+                    </label>
+                </div>
+            </div>
+            
+            <div class="text-[10px] font-black text-white/30 tracking-widest mt-4">GENERATIVE</div>
+            <div class="flex flex-col gap-2 mt-1">
+                <button id="btnGhibli" class="tool-btn" disabled><i class="fas fa-palette"></i> Ghibli Art Style</button>
+                <div id="ghibliOptions" class="flex flex-col gap-1 px-2 mt-1 text-xs text-white/50">
+                    <div class="flex justify-between">
+                        <span>Style Strength</span>
+                        <span id="strengthVal">0.60</span>
+                    </div>
+                    <input type="range" id="ghibliStrength" min="0.1" max="1.0" step="0.05" value="0.60" class="w-full accent-blue-500">
+                </div>
+                <textarea id="promptInput" class="w-full p-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white/90 outline-none focus:border-white/30 hidden resize-none" rows="3">Transform this image into a beautiful Studio Ghibli anime scene. Use soft lighting, pastel colors, hand-drawn textures, and a whimsical atmosphere.</textarea>
+            </div>
+            
+            <div class="text-[10px] font-black text-purple-400/50 tracking-widest mt-4">INTELLIGENCE</div>
+            <button id="btnCaption" class="tool-btn gemini-btn" disabled><i class="fas fa-comment-dots"></i> Magic Caption ✨</button>
+            <button id="btnSuggest" class="tool-btn gemini-btn" disabled><i class="fas fa-lightbulb"></i> Edit Strategy ✨</button>
+            <button id="btnExport" class="btn-ios mt-auto" style="display:none;">Finalize PNG</button>
+            <button id="btnCompare" class="btn-ios mt-2" style="display:none; background: rgba(255,255,255,0.08); color: white; border: 1px solid var(--glass-border);">Hold to View Original</button>
+        </aside>
+
+        <main class="main-view">
+            <div class="loader" id="mainLoader">
+                <div class="spinner"></div>
+                <p id="loaderText" class="text-white text-[10px] font-bold tracking-widest mt-5">PROCESSING</p>
+                <div class="w-48 h-1 bg-white/10 rounded-full mt-4 overflow-hidden relative">
+                    <div id="loaderProgressBar" class="h-full bg-gradient-to-r from-blue-500 to-purple-500 w-0 transition-all duration-200"></div>
+                </div>
+            </div>
+            
+            <div id="empty" class="opacity-5 text-center transition-all duration-500">
+                <i class="fas fa-signature text-9xl text-white mb-6"></i>
+                <h1 class="text-white text-6xl font-thin tracking-[20px]">STUDIO</h1>
+            </div>
+            
+            <canvas id="outputCanvas"></canvas>
+
+            <!-- Dashboard View -->
+            <div id="dashboardContainer" class="hidden absolute inset-0 m-10 bg-black/60 backdrop-blur-2xl rounded-[40px] border border-white/10 p-10 flex-col z-50">
+                <div class="flex justify-between items-center mb-10">
+                    <h2 class="text-3xl font-light text-white tracking-tight">Your Dashboard</h2>
+                    <button onclick="navigate('/')" class="text-white/40 hover:text-white transition-colors bg-white/5 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-times"></i></button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div class="bg-white/5 rounded-3xl p-6 border border-white/10 relative overflow-hidden group">
+                        <div class="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/20 blur-3xl rounded-full group-hover:bg-blue-500/30 transition-colors"></div>
+                        <div class="text-[10px] font-bold tracking-widest text-white/40 uppercase mb-2 relative z-10">Total AI Requests</div>
+                        <div class="text-5xl font-light text-white relative z-10" id="statAiRequests">0</div>
+                    </div>
+                    <div class="bg-white/5 rounded-3xl p-6 border border-white/10 flex items-center justify-between relative overflow-hidden group">
+                        <div class="absolute -left-10 -bottom-10 w-40 h-40 bg-purple-500/20 blur-3xl rounded-full group-hover:bg-purple-500/30 transition-colors"></div>
+                        <div class="relative z-10">
+                            <div class="text-[10px] font-bold tracking-widest text-white/40 uppercase mb-2">Member Since</div>
+                            <div class="text-xl font-bold text-white" id="statMemberSince">-</div>
+                        </div>
+                        <i class="fas fa-crown text-4xl text-yellow-500/50 relative z-10"></i>
+                    </div>
+                </div>
+
+                <div class="bg-white/5 rounded-3xl p-6 border border-white/10 flex-1 overflow-y-auto no-scrollbar">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-sm font-bold tracking-widest text-white/40 uppercase">Recent Activity</h3>
+                        <button class="text-xs text-blue-400 font-semibold hover:text-blue-300">View All</button>
+                    </div>
+                    <div id="activityList" class="flex flex-col gap-3">
+                        <div class="text-sm text-white/50 text-center py-4">No recent activity</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile View -->
+            <div id="profileContainer" class="hidden absolute inset-0 m-10 bg-black/60 backdrop-blur-2xl rounded-[40px] border border-white/10 p-10 flex-col z-50">
+                <div class="flex justify-between items-center mb-10">
+                    <h2 class="text-3xl font-light text-white tracking-tight">User Profile</h2>
+                    <button onclick="navigate('/')" class="text-white/40 hover:text-white transition-colors bg-white/5 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-times"></i></button>
+                </div>
+                
+                <div class="bg-white/5 rounded-3xl p-8 border border-white/10 max-w-xl mx-auto w-full relative overflow-hidden group">
+                    <div class="absolute -right-10 -top-10 w-40 h-40 bg-emerald-500/20 blur-3xl rounded-full group-hover:bg-emerald-500/30 transition-colors"></div>
+                    <div class="flex flex-col items-center gap-6 relative z-10">
+                        <div class="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center border-2 border-white/20 text-3xl font-bold text-white uppercase" id="profileAvatar">
+                            U
+                        </div>
+                        <div class="text-center">
+                            <h3 class="text-2xl font-bold text-white" id="profileUsername">-</h3>
+                            <p class="text-sm text-white/50" id="profileEmail">-</p>
+                        </div>
+                        <div class="w-full border-t border-white/10 my-4"></div>
+                        <div class="w-full grid grid-cols-2 gap-4 text-left">
+                            <div>
+                                <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1">Phone Number</span>
+                                <span class="text-white font-medium" id="profilePhone">-</span>
+                            </div>
+                            <div>
+                                <span class="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1">Status</span>
+                                <span class="text-emerald-400 font-medium flex items-center gap-1.5"><i class="fas fa-circle text-[8px] animate-pulse"></i> Active</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="settingsContainer" class="hidden absolute inset-0 m-10 bg-black/60 backdrop-blur-2xl rounded-[40px] border border-white/10 p-10 flex-col z-50">
+                <div class="flex justify-between items-center mb-10">
+                    <h2 class="text-3xl font-light text-white tracking-tight">System Settings</h2>
+                    <button onclick="navigate('/')" class="text-white/40 hover:text-white transition-colors bg-white/5 w-10 h-10 rounded-full flex items-center justify-center"><i class="fas fa-times"></i></button>
+                </div>
+                
+                <div class="bg-white/5 rounded-3xl p-8 border border-white/10 max-w-xl mx-auto w-full relative overflow-hidden">
+                    <div class="absolute -left-10 -bottom-10 w-40 h-40 bg-blue-500/10 blur-3xl rounded-full"></div>
+                    <div class="flex flex-col gap-6 relative z-10">
+                        <h3 class="text-lg font-bold text-white mb-2"><i class="fas fa-sliders-h mr-2 text-blue-400"></i> Preferences</h3>
+                        <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                            <div>
+                                <div class="text-sm font-bold text-white">High Quality Rendering</div>
+                                <div class="text-xs text-white/50">Prioritize detail over speed for local processing.</div>
+                            </div>
+                            <input type="checkbox" checked class="w-10 h-6 bg-white/10 rounded-full appearance-none cursor-pointer relative checked:bg-blue-500 transition-colors before:content-[''] before:absolute before:w-5 before:h-5 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 checked:before:translate-x-4 before:transition-transform">
+                        </div>
+                        <div class="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                            <div>
+                                <div class="text-sm font-bold text-white">Auto-Save Processing History</div>
+                                <div class="text-xs text-white/50">Save sketches directly to local activity log.</div>
+                            </div>
+                            <input type="checkbox" checked class="w-10 h-6 bg-white/10 rounded-full appearance-none cursor-pointer relative checked:bg-blue-500 transition-colors before:content-[''] before:absolute before:w-5 before:h-5 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 checked:before:translate-x-4 before:transition-transform">
+                        </div>
+                        <button onclick="localStorage.removeItem('sketchai_token'); window.location.reload();" class="btn-ios bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-all font-bold py-3 mt-4">
+                            Logout Session
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div id="aiOutput" class="absolute bottom-10 left-10 right-10 p-6 rounded-3xl bg-black/50 backdrop-blur-xl border border-white/10 hidden">
+                <div class="flex justify-between items-start mb-2">
+                    <span class="text-[10px] font-bold tracking-widest text-white/40 uppercase">AI Insight</span>
+                    <div class="flex gap-4">
+                        <button id="btnCopyAi" class="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-widest"><i class="fas fa-copy"></i> Copy</button>
+                        <button id="btnRegenAi" class="text-[10px] font-bold text-purple-400 hover:text-purple-300 uppercase tracking-widest"><i class="fas fa-sync"></i> Regenerate</button>
+                        <button onclick="this.parentElement.parentElement.parentElement.classList.add('hidden')" class="text-white/40 hover:text-white"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+                <p id="aiContent" class="text-white/90 text-sm leading-relaxed"></p>
+            </div>
+            
+            <!-- Brush Overlay for Inpainting -->
+            <div id="brushOverlay" class="hidden absolute inset-0 bg-black/40 flex flex-col items-center justify-center z-[60] backdrop-blur-sm">
+                <div class="mb-6 text-center">
+                    <h3 class="text-white font-bold text-xl mb-2">Paint Over Object</h3>
+                    <p class="text-white/60 text-xs">Use your mouse to draw over the object you want to remove.</p>
+                </div>
+                <div class="relative bg-white/5 rounded-[28px] p-2 border border-white/10">
+                    <canvas id="maskCanvas" class="cursor-crosshair"></canvas>
+                </div>
+                <div class="mt-8 flex gap-4">
+                    <button onclick="cancelInpaint()" class="px-6 py-3 rounded-2xl bg-white/5 text-white text-sm font-bold border border-white/10 hover:bg-white/10 transition-all">Cancel</button>
+                    <button onclick="undoMask()" class="px-4 py-3 rounded-2xl bg-white/5 text-white text-sm font-bold border border-white/10 hover:bg-white/10 transition-all"><i class="fas fa-undo"></i> Undo</button>
+                    <button onclick="redoMask()" class="px-4 py-3 rounded-2xl bg-white/5 text-white text-sm font-bold border border-white/10 hover:bg-white/10 transition-all"><i class="fas fa-redo"></i> Redo</button>
+                    <button onclick="finishInpaint()" class="px-6 py-3 rounded-2xl bg-white text-black text-sm font-bold shadow-2xl hover:scale-105 transition-all">Finish & Remove</button>
+                </div>
+                <div class="mt-4 flex items-center gap-3">
+                    <label class="text-[10px] font-bold text-white/40 uppercase">Brush Size</label>
+                    <input type="range" id="brushSize" min="5" max="50" value="20" class="w-32 accent-blue-500">
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let jwtToken = localStorage.getItem('sketchai_token');
+        let currentUser = null;
+        let currentImgBase64 = null;
+        let modifiedImgBase64 = null;
+        let bodyPixNet = null;
+        let rawImg = new Image();
+        let cvReady = false;
+
+        // Mask Canvas Undo/Redo Stacks
+        let maskUndoStack = [];
+        let maskRedoStack = [];
+        const maxStackSize = 20;
+
+        // UI Helpers
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            const bg = type === 'success' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-100' : 'bg-red-500/20 border-red-500/50 text-red-100';
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+            
+            toast.className = `toast show flex items-center gap-3 px-4 py-3 rounded-2xl border backdrop-blur-xl ${bg} shadow-lg`;
+            toast.innerHTML = `<i class="fas ${icon}"></i> <span class="text-sm font-medium">${message}</span>`;
+            
+            container.appendChild(toast);
+            
+            // Trigger reflow
+            void toast.offsetWidth;
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 400);
+            }, 4000);
+        }
+
+        // Robust OpenCV initialization
+        window.Module = {
+            onRuntimeInitialized: () => {
+                cvReady = true;
+                console.log("OpenCV Runtime Ready");
+            }
+        };
+
+        const checkCV = setInterval(() => {
+            if (typeof cv !== 'undefined' && cv.Mat) {
+                cvReady = true;
+                clearInterval(checkCV);
+                console.log("OpenCV Object Detected");
+            }
+        }, 500);
+
+        // --- NAVIGATION & AUTH UI ---
+        window.goToLogin = function() {
+            if(jwtToken) {
+                navigate('/');
+                return;
+            }
+            navigate('/login');
+        }
+
+        window.switchAuthTab = function(tab) {
+            const loginForm = document.getElementById('loginForm');
+            const regForm = document.getElementById('registerForm');
+            const tabLogin = document.getElementById('tabLogin');
+            const tabReg = document.getElementById('tabRegister');
+            
+            document.getElementById('authError').classList.add('hidden');
+            
+            if (tab === 'login') {
+                loginForm.classList.remove('hidden');
+                regForm.classList.add('hidden');
+                tabLogin.className = 'flex-1 py-2 rounded-xl text-sm font-bold bg-white text-black transition-all';
+                tabReg.className = 'flex-1 py-2 rounded-xl text-sm font-bold text-white/50 hover:text-white transition-all';
+            } else {
+                loginForm.classList.add('hidden');
+                regForm.classList.remove('hidden');
+                tabReg.className = 'flex-1 py-2 rounded-xl text-sm font-bold bg-white text-black transition-all';
+                tabLogin.className = 'flex-1 py-2 rounded-xl text-sm font-bold text-white/50 hover:text-white transition-all';
+            }
+        }
+
+        window.checkPasswordStrength = function() {
+            const pw = document.getElementById('regPassword').value;
+            const str1 = document.getElementById('str1');
+            const str2 = document.getElementById('str2');
+            const str3 = document.getElementById('str3');
+            const str4 = document.getElementById('str4');
+            
+            let strength = 0;
+            if (pw.length >= 8) strength++;
+            if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) strength++;
+            if (/\d/.test(pw)) strength++;
+            if (/[@$!%*?&]/.test(pw)) strength++;
+            
+            const resetColors = () => [str1, str2, str3, str4].forEach(el => el.className = 'flex-1 rounded-full bg-white/10');
+            resetColors();
+            
+            if (strength >= 1) str1.className = 'flex-1 rounded-full bg-red-500';
+            if (strength >= 2) str2.className = 'flex-1 rounded-full bg-orange-400';
+            if (strength >= 3) str3.className = 'flex-1 rounded-full bg-yellow-400';
+            if (strength >= 4) str4.className = 'flex-1 rounded-full bg-emerald-500';
+        }
+
+        function showError(msg) {
+            const errEl = document.getElementById('authError');
+            errEl.innerText = msg;
+            errEl.classList.remove('hidden');
+        }
+
+        window.handleLogin = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('loginBtnText');
+            btn.innerText = 'Connecting...';
+            
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        email: document.getElementById('loginEmail').value,
+                        password: document.getElementById('loginPassword').value
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    jwtToken = data.data.token;
+                    localStorage.setItem('sketchai_token', jwtToken);
+                    showToast('Login successful!');
+                    navigate('/dashboard');
+                } else {
+                    showError(data.message || 'Login failed');
+                }
+            } catch (err) {
+                showError('Network error. Ensure Spring Boot backend is running.');
+            } finally {
+                btn.innerText = 'Connect Session';
+            }
+        }
+
+        window.handleRegister = async function(e) {
+            e.preventDefault();
+            
+            const pw = document.getElementById('regPassword').value;
+            const cpw = document.getElementById('regConfirmPassword').value;
+            
+            if (pw !== cpw) {
+                showError('Passwords do not match');
+                return;
+            }
+            
+            const pwRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+            if (!pwRegex.test(pw)) {
+                showError('Password must contain uppercase, lowercase, number, and special char.');
+                return;
+            }
+
+            const btn = document.getElementById('regBtnText');
+            btn.innerText = 'Creating...';
+            
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: document.getElementById('regUsername').value,
+                        email: document.getElementById('regEmail').value,
+                        password: pw,
+                        phone: document.getElementById('regPhone').value
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    jwtToken = data.data.token;
+                    localStorage.setItem('sketchai_token', jwtToken);
+                    showToast('Account created successfully!');
+                    navigate('/dashboard');
+                } else {
+                    let errMsg = data.message;
+                    if(data.data && typeof data.data === 'object') {
+                        errMsg = Object.values(data.data)[0];
+                    }
+                    showError(errMsg || 'Registration failed');
+                }
+            } catch (err) {
+                showError('Network error. Please try again.');
+            } finally {
+                btn.innerText = 'Create Account';
+            }
+        }
+
+        function showWorkspace() {
+            document.getElementById('landingView').style.display = 'none';
+            document.body.classList.add('studio-active');
+            document.getElementById('studioBg').style.display = 'block';
+            
+            const authContainer = document.getElementById('authContainer');
+            if(authContainer.style.display !== 'none') {
+                authContainer.style.opacity = '0';
+                setTimeout(() => {
+                    authContainer.style.display = 'none';
+                    document.getElementById('appWorkspace').style.display = 'grid';
+                    initTF();
+                }, 600);
+            } else {
+                document.getElementById('appWorkspace').style.display = 'grid';
+                initTF();
+            }
+        }
+
+        // --- CLIENT SIDE ROUTER ---
+        window.navigate = function(path, push = true) {
+            if (push) {
+                history.pushState(null, '', path);
+            }
+            
+            const cleanPath = path.split('?')[0].split('#')[0];
+            
+            if (cleanPath === '/' || cleanPath === '/index.html') {
+                if (cleanPath === '/index.html') {
+                    history.replaceState(null, '', '/');
+                }
+                if (jwtToken) {
+                    showWorkspace();
+                    closeOverlays();
+                } else {
+                    document.getElementById('landingView').style.display = 'flex';
+                    document.getElementById('landingView').style.opacity = '1';
+                    document.getElementById('landingView').style.transform = 'scale(1)';
+                    document.getElementById('authContainer').style.display = 'none';
+                    document.getElementById('appWorkspace').style.display = 'none';
+                    document.body.classList.remove('studio-active');
+                    document.getElementById('studioBg').style.display = 'none';
+                }
+            } 
+            else if (cleanPath === '/login' || cleanPath === '/login.html') {
+                if (cleanPath === '/login.html') {
+                    history.replaceState(null, '', '/login');
+                }
+                if (jwtToken) {
+                    navigate('/dashboard');
+                    return;
+                }
+                document.getElementById('landingView').style.display = 'none';
+                document.body.classList.add('studio-active');
+                document.getElementById('studioBg').style.display = 'block';
+                const auth = document.getElementById('authContainer');
+                auth.style.display = 'block';
+                auth.style.opacity = '1';
+                auth.style.transform = 'translateY(0)';
+                switchAuthTab('login');
+            } 
+            else if (cleanPath === '/dashboard' || cleanPath === '/dashboard.html') {
+                if (cleanPath === '/dashboard.html') {
+                    history.replaceState(null, '', '/dashboard');
+                }
+                if (!jwtToken) {
+                    navigate('/login');
+                    return;
+                }
+                showWorkspace();
+                openDashboardView();
+            } 
+            else if (cleanPath === '/profile') {
+                if (!jwtToken) {
+                    navigate('/login');
+                    return;
+                }
+                showWorkspace();
+                openProfileView();
+            } 
+            else if (cleanPath === '/settings') {
+                if (!jwtToken) {
+                    navigate('/login');
+                    return;
+                }
+                showWorkspace();
+                openSettingsView();
+            } 
+            else if (['/ghibli', '/background-removal', '/background-replacement', '/object-removal', '/upscale'].includes(cleanPath)) {
+                if (!jwtToken) {
+                    navigate('/login');
+                    return;
+                }
+                showWorkspace();
+                closeOverlays();
+                highlightTool(cleanPath);
+            } 
+            else {
+                navigate('/');
+            }
+        };
+
+        window.openDashboardView = async function() {
+            const dash = document.getElementById('dashboardContainer');
+            dash.classList.remove('hidden');
+            dash.classList.add('flex');
+            document.getElementById('empty').style.opacity = '0';
+            if(canvas.style.display === 'block') canvas.style.opacity = '0';
+            
+            const profile = document.getElementById('profileContainer');
+            if (profile) {
+                profile.classList.add('hidden');
+                profile.classList.remove('flex');
+            }
+            const settings = document.getElementById('settingsContainer');
+            if (settings) {
+                settings.classList.add('hidden');
+                settings.classList.remove('flex');
+            }
+            
+            try {
+                const [profileRes, statsRes] = await Promise.all([
+                    fetchWithAuth('/api/user/profile'),
+                    fetchWithAuth('/api/user/dashboard')
+                ]);
+                
+                if (profileRes.ok && statsRes.ok) {
+                    const profileData = await profileRes.json();
+                    const statsData = await statsRes.json();
+                    
+                    document.getElementById('statAiRequests').innerText = statsData.data.totalRequests || 0;
+                    const date = new Date(profileData.data.createdAt);
+                    document.getElementById('statMemberSince').innerText = `${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}`;
+                    
+                    const activityList = document.getElementById('activityList');
+                    if (statsData.data.recentActivities && statsData.data.recentActivities.length > 0) {
+                        activityList.innerHTML = statsData.data.recentActivities.slice(0,5).map(act => `
+                            <div class="bg-white/5 p-4 rounded-2xl border border-white/5 flex justify-between items-center hover:bg-white/10 transition-colors">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center border border-white/10">
+                                        <i class="fas fa-bolt text-blue-400"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-sm font-bold text-white">${act.action}</div>
+                                        <div class="text-xs text-white/50">${act.details || 'System Process'}</div>
+                                    </div>
+                                </div>
+                                <div class="text-[10px] font-bold text-white/30 uppercase tracking-widest">${new Date(act.timestamp).toLocaleDateString()}</div>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (err) {
+                console.error("Dashboard error:", err);
+                showToast("Failed to load dashboard data", "error");
+            }
+        };
+
+        window.openProfileView = async function() {
+            const profile = document.getElementById('profileContainer');
+            profile.classList.remove('hidden');
+            profile.classList.add('flex');
+            document.getElementById('empty').style.opacity = '0';
+            if(canvas.style.display === 'block') canvas.style.opacity = '0';
+            
+            const dash = document.getElementById('dashboardContainer');
+            dash.classList.add('hidden');
+            dash.classList.remove('flex');
+            const settings = document.getElementById('settingsContainer');
+            if (settings) {
+                settings.classList.add('hidden');
+                settings.classList.remove('flex');
+            }
+            
+            try {
+                const profileRes = await fetchWithAuth('/api/user/profile');
+                if (profileRes.ok) {
+                    const profileData = await profileRes.json();
+                    const user = profileData.data;
+                    document.getElementById('profileUsername').innerText = user.username || 'N/A';
+                    document.getElementById('profileEmail').innerText = user.email || 'N/A';
+                    document.getElementById('profilePhone').innerText = user.phone || 'N/A';
+                    document.getElementById('profileAvatar').innerText = (user.username || 'U').charAt(0).toUpperCase();
+                }
+            } catch (err) {
+                console.error("Profile error:", err);
+                showToast("Failed to load profile data", "error");
+            }
+        };
+
+        window.openSettingsView = function() {
+            const settings = document.getElementById('settingsContainer');
+            settings.classList.remove('hidden');
+            settings.classList.add('flex');
+            document.getElementById('empty').style.opacity = '0';
+            if(canvas.style.display === 'block') canvas.style.opacity = '0';
+            
+            const dash = document.getElementById('dashboardContainer');
+            dash.classList.add('hidden');
+            dash.classList.remove('flex');
+            const profile = document.getElementById('profileContainer');
+            if (profile) {
+                profile.classList.add('hidden');
+                profile.classList.remove('flex');
+            }
+        };
+
+        window.closeOverlays = function() {
+            const overlays = ['dashboardContainer', 'profileContainer', 'settingsContainer'];
+            overlays.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.classList.add('hidden');
+                    el.classList.remove('flex');
+                }
+            });
+            if(canvas.style.display === 'block') {
+                canvas.style.opacity = '1';
+            } else {
+                document.getElementById('empty').style.opacity = '0.05';
+            }
+        };
+
+        window.highlightTool = function(path) {
+            const toolButtons = document.querySelectorAll('.tool-btn');
+            toolButtons.forEach(btn => {
+                btn.style.border = '1px solid var(--glass-border)';
+                btn.style.background = 'rgba(255, 255, 255, 0.03)';
+            });
+            
+            let activeBtnId = null;
+            if (path === '/ghibli') activeBtnId = 'btnGhibli';
+            else if (path === '/background-removal') activeBtnId = 'btnCutout';
+            else if (path === '/background-replacement') activeBtnId = 'btnBgReplace';
+            else if (path === '/object-removal') activeBtnId = 'btnInpaint';
+            else if (path === '/upscale') activeBtnId = 'btnUpscale';
+            
+            if (activeBtnId) {
+                const btn = document.getElementById(activeBtnId);
+                if (btn) {
+                    btn.style.border = '1px solid rgba(59, 130, 246, 0.6)';
+                    btn.style.background = 'rgba(59, 130, 246, 0.15)';
+                }
+            }
+        };
+
+        window.addEventListener('popstate', () => {
+            navigate(window.location.pathname, false);
+        });
+
+        async function initTF() {
+            try {
+                if (window.tf) {
+                    await tf.ready();
+                    if (typeof bodyPix !== 'undefined') {
+                        bodyPixNet = await bodyPix.load();
+                        console.log("BodyPix Loaded Successfully");
+                    } else {
+                        setTimeout(initTF, 1000);
+                    }
+                } else {
+                    setTimeout(initTF, 500);
+                }
+            } catch(e){
+                console.error("TF Error:", e);
+            }
+        }
+
+        const imgInput = document.getElementById('imageInput');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        const maskCanvas = document.getElementById('maskCanvas');
+        const maskCtx = maskCanvas.getContext('2d');
+        let isDrawing = false;
+        let lastAiAction = null;
+
+        document.getElementById('triggerUpload').onclick = () => imgInput.click();
+
+        // Refactored helper to process dropped or chosen image file
+        function handleImageFile(file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                currentImgBase64 = ev.target.result;
+                modifiedImgBase64 = ev.target.result;
+                rawImg.src = ev.target.result;
+
+                rawImg.onload = () => {
+                    document.getElementById('empty').style.display = 'none';
+                    canvas.style.display = 'block';
+                    ['btnSketch', 'btnSketchEnhance', 'btnCutout', 'btnBgReplace', 'btnInpaint', 'btnUpscale', 'btnGhibli', 'btnCaption', 'btnSuggest']
+                        .forEach(id => document.getElementById(id).disabled = false);
+                    document.getElementById('promptInput').classList.remove('hidden');
+                    document.getElementById('btnExport').style.display = 'block';
+                    document.getElementById('btnCompare').style.display = 'block';
+                    
+                    canvas.width = rawImg.width;
+                    canvas.height = rawImg.height;
+                    ctx.drawImage(rawImg, 0, 0);
+                    showToast("Asset uploaded successfully!");
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        imgInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleImageFile(file);
+        });
+
+        // --- DRAG AND DROP SUPPORT ---
+        const workspaceArea = document.getElementById('appWorkspace');
+        ['dragenter', 'dragover'].forEach(eventName => {
+            workspaceArea.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                workspaceArea.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            workspaceArea.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                workspaceArea.style.borderColor = 'var(--glass-border)';
+            }, false);
+        });
+
+        workspaceArea.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                const file = files[0];
+                if (file.type.startsWith('image/')) {
+                    handleImageFile(file);
+                } else {
+                    showToast("Please drop a valid image file.", "error");
+                }
+            }
+        }, false);
+
+        // --- HOLD TO COMPARE ---
+        const btnCompare = document.getElementById('btnCompare');
+        
+        const showOriginal = () => {
+            if (!currentImgBase64) return;
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+            };
+            tempImg.src = currentImgBase64;
+        };
+
+        const showModified = () => {
+            if (!modifiedImgBase64) return;
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+            };
+            tempImg.src = modifiedImgBase64.startsWith('data:') ? modifiedImgBase64 : `data:image/png;base64,${modifiedImgBase64}`;
+        };
+
+        btnCompare.addEventListener('mousedown', showOriginal);
+        btnCompare.addEventListener('mouseup', showModified);
+        btnCompare.addEventListener('mouseleave', showModified);
+        
+        btnCompare.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            showOriginal();
+        });
+        btnCompare.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            showModified();
+        });
+
+        // Live Ghibli Strength Label listener
+        document.getElementById('ghibliStrength').oninput = (e) => {
+            document.getElementById('strengthVal').innerText = parseFloat(e.target.value).toFixed(2);
+        };
+
+        // --- CORE EFFECTS ---
+        document.getElementById('btnSketch').onclick = () => {
+            if (typeof cv === 'undefined' || !cvReady) {
+                alert("Processing engine (OpenCV) is still loading...");
+                return;
+            }
+            showLoader("EXTRACTING LINES", 1);
+            setTimeout(() => {
+                try {
+                    let src = cv.imread(canvas);
+                    let gray = new cv.Mat();
+                    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                    let inv = new cv.Mat();
+                    cv.bitwise_not(gray, inv);
+                    let blur = new cv.Mat();
+                    cv.GaussianBlur(inv, blur, new cv.Size(21, 21), 0);
+                    let invBlur = new cv.Mat();
+                    cv.bitwise_not(blur, invBlur);
+                    let sketch = new cv.Mat();
+                    cv.divide(gray, invBlur, sketch, 256.0);
+                    cv.imshow('outputCanvas', sketch);
+                    [src, gray, inv, blur, invBlur, sketch].forEach(m => m.delete());
+                    
+                    // Update state
+                    modifiedImgBase64 = canvas.toDataURL();
+                    showToast("Lines extracted!");
+                } catch (e) { console.error(e); }
+                hideLoader();
+            }, 100);
+        };
+
+        document.getElementById('btnCutout').onclick = async () => {
+            if (!currentImgBase64) {
+                showToast("Please upload an image first!", "error");
+                return;
+            }
+            history.pushState(null, '', '/background-removal');
+            highlightTool('/background-removal');
+            showLoader("AI BACKGROUND REMOVAL", 2);
+            try {
+                const data = await callBackendAi('/api/remove-bg', "Remove background");
+                if (data.image) {
+                    modifiedImgBase64 = data.image;
+                    const finalUrl = `data:image/png;base64,${data.image}`;
+                    const bgRemovedImg = new Image();
+                    bgRemovedImg.onload = () => {
+                        canvas.width = bgRemovedImg.width;
+                        canvas.height = bgRemovedImg.height;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(bgRemovedImg, 0, 0, canvas.width, canvas.height);
+                        hideLoader();
+                        showToast("Background removed successfully!");
+                    };
+                    bgRemovedImg.src = finalUrl;
+                }
+            } catch(e) {
+                console.error(e);
+                hideLoader();
+                showToast("Background removal failed", "error");
+            }
+        };
+
+        // --- SPRING BOOT API INTEGRATION ---
+        async function fetchWithAuth(url, options = {}) {
+            if (!options.headers) options.headers = {};
+            options.headers['Authorization'] = `Bearer ${jwtToken}`;
+            options.headers['Content-Type'] = 'application/json';
+            
+            const response = await fetch(url, options);
+            if(response.status === 401 || response.status === 403) {
+                localStorage.removeItem('sketchai_token');
+                window.location.reload();
+            }
+            return response;
+        }
+
+        async function callBackendAi(endpoint, prompt, extraData = {}) {
+            if (!currentImgBase64) return "Error: No image found.";
+            const base64Data = currentImgBase64.split(',')[1];
+            if (!base64Data) return "Error: Image not processed correctly.";
+
+            try {
+                const res = await fetchWithAuth(endpoint, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        image: base64Data,
+                        ...extraData
+                    })
+                });
+                
+                if (!res.ok) throw new Error('API request failed');
+                const data = await res.json();
+                return data;
+            } catch (error) {
+                console.error("Backend API Error:", error);
+                throw error;
+            }
+        }
+
+        async function generateGhibliStyle() {
+            if (!currentImgBase64) {
+                showToast("Please upload an image first!", "error");
+                return;
+            }
+            history.pushState(null, '', '/ghibli');
+            highlightTool('/ghibli');
+            
+            // Log frontend telemetry
+            console.log("[Ghibli UI] Triggered Ghibli Art Style transformation.");
+            const base64Length = currentImgBase64.split(',')[1] ? currentImgBase64.split(',')[1].length : currentImgBase64.length;
+            console.log("[Ghibli UI] Uploaded image size: W=" + rawImg.width + ", H=" + rawImg.height);
+            console.log("[Ghibli UI] Base64 string length: " + base64Length);
+
+            showLoader("PAINTING GHIBLI SCENE...", 8);
+            const promptValue = document.getElementById('promptInput').value;
+            const strengthVal = parseFloat(document.getElementById('ghibliStrength').value) || 0.60;
+            console.log("[Ghibli UI] Sending payload to Spring Boot backend. Prompt: '" + promptValue + "', Strength: " + strengthVal);
+
+            try {
+                const data = await callBackendAi('/api/ghibli', promptValue, { strength: strengthVal });
+                if (data.image) {
+                    console.log("[Ghibli UI] Successfully received Ghibli style image from backend.");
+                    console.log("[Ghibli UI] Received base64 image length: " + data.image.length);
+                    updateCanvas(data.image);
+                } else {
+                    console.error("[Ghibli UI] Failed: Backend returned empty image field.");
+                    showToast("Failed to transform image", "error");
+                }
+            } catch (err) {
+                console.error("[Ghibli UI] Error during transformation:", err);
+                hideLoader();
+                showToast("Transformation failed. Backend might be unreachable.", "error");
+            }
+        }
+
+        document.getElementById('btnGhibli').onclick = () => {
+            generateGhibliStyle();
+        };
+
+        document.getElementById('btnBgReplace').onclick = async () => {
+            if (!currentImgBase64) {
+                showToast("Please upload an image first!", "error");
+                return;
+            }
+            history.pushState(null, '', '/background-replacement');
+            highlightTool('/background-replacement');
+            const promptValue = document.getElementById('promptInput').value;
+            showLoader("GENERATING NEW ENVIRONMENT...", 9);
+            try {
+                const data = await callBackendAi('/api/replace-bg', promptValue);
+                if (data.image) updateCanvas(data.image);
+            } catch (err) {
+                showToast("Background replacement failed", "error");
+            }
+            hideLoader();
+        };
+
+        document.getElementById('btnUpscale').onclick = async () => {
+            if (!currentImgBase64) {
+                showToast("Please upload an image first!", "error");
+                return;
+            }
+            history.pushState(null, '', '/upscale');
+            highlightTool('/upscale');
+            showLoader("ENHANCING RESOLUTION...", 4);
+            const upscaleFactorVal = document.querySelector('input[name="upscaleFactor"]:checked')?.value || 2;
+            const upscaleFactor = parseInt(upscaleFactorVal);
+            try {
+                const data = await callBackendAi('/api/upscale', "", { upscaleFactor: upscaleFactor });
+                if (data.image) updateCanvas(data.image);
+            } catch (err) {
+                showToast("Upscaling failed", "error");
+            }
+            hideLoader();
+        };
+
+        document.getElementById('btnSketchEnhance').onclick = async () => {
+            showLoader("SHARPENING SKETCH...", 2);
+            try {
+                const data = await callBackendAi('/api/sketch-enhance', "");
+                if (data.image) updateCanvas(data.image);
+            } catch (err) {
+                showToast("Sketch enhancement failed", "error");
+            }
+            hideLoader();
+        };
+
+        // --- AI OBJECT REMOVAL AND BRUSH SYSTEM ---
+        document.getElementById('btnInpaint').onclick = () => {
+            if (!currentImgBase64) {
+                showToast("Please upload an image first!", "error");
+                return;
+            }
+            history.pushState(null, '', '/object-removal');
+            highlightTool('/object-removal');
+            const overlay = document.getElementById('brushOverlay');
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            
+            maskCanvas.width = canvas.width;
+            maskCanvas.height = canvas.height;
+            maskCtx.fillStyle = 'black';
+            maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+            maskCtx.lineJoin = 'round';
+            maskCtx.lineCap = 'round';
+            maskCtx.strokeStyle = 'white';
+
+            // Clear stack & save initial blank mask state
+            maskUndoStack = [];
+            maskRedoStack = [];
+            saveMaskState();
+        };
+
+        function saveMaskState() {
+            if (maskUndoStack.length >= maxStackSize) {
+                maskUndoStack.shift();
+            }
+            maskUndoStack.push(maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height));
+            maskRedoStack = []; // Clear redo on drawing action
+        }
+
+        window.undoMask = function() {
+            if (maskUndoStack.length > 1) {
+                const currentState = maskUndoStack.pop();
+                maskRedoStack.push(currentState);
+                const prevState = maskUndoStack[maskUndoStack.length - 1];
+                maskCtx.putImageData(prevState, 0, 0);
+            } else if (maskUndoStack.length === 1) {
+                const currentState = maskUndoStack.pop();
+                maskRedoStack.push(currentState);
+                maskCtx.fillStyle = 'black';
+                maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+            } else {
+                showToast("Nothing to undo", "error");
+            }
+        }
+
+        window.redoMask = function() {
+            if (maskRedoStack.length > 0) {
+                const nextState = maskRedoStack.pop();
+                maskUndoStack.push(nextState);
+                maskCtx.putImageData(nextState, 0, 0);
+            } else {
+                showToast("Nothing to redo", "error");
+            }
+        }
+
+        maskCanvas.onmousedown = (e) => {
+            isDrawing = true;
+            const rect = maskCanvas.getBoundingClientRect();
+            const scaleX = maskCanvas.width / rect.width;
+            const scaleY = maskCanvas.height / rect.height;
+            maskCtx.beginPath();
+            maskCtx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+        };
+
+        maskCanvas.onmousemove = (e) => {
+            if (!isDrawing) return;
+            const rect = maskCanvas.getBoundingClientRect();
+            const scaleX = maskCanvas.width / rect.width;
+            const scaleY = maskCanvas.height / rect.height;
+            maskCtx.lineWidth = document.getElementById('brushSize').value;
+            maskCtx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+            maskCtx.stroke();
+        };
+
+        maskCanvas.onmouseup = () => {
+            if (isDrawing) {
+                isDrawing = false;
+                saveMaskState();
+            }
+        };
+
+        maskCanvas.onmouseleave = () => {
+            if (isDrawing) {
+                isDrawing = false;
+                saveMaskState();
+            }
+        };
+
+        // Touch drawing support
+        const getTouchPos = (e) => {
+            const rect = maskCanvas.getBoundingClientRect();
+            const scaleX = maskCanvas.width / rect.width;
+            const scaleY = maskCanvas.height / rect.height;
+            const touch = e.touches[0];
+            return {
+                x: (touch.clientX - rect.left) * scaleX,
+                y: (touch.clientY - rect.top) * scaleY
+            };
+        };
+
+        maskCanvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            isDrawing = true;
+            const pos = getTouchPos(e);
+            maskCtx.beginPath();
+            maskCtx.moveTo(pos.x, pos.y);
+        }, { passive: false });
+
+        maskCanvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!isDrawing) return;
+            const pos = getTouchPos(e);
+            maskCtx.lineWidth = document.getElementById('brushSize').value;
+            maskCtx.lineTo(pos.x, pos.y);
+            maskCtx.stroke();
+        }, { passive: false });
+
+        maskCanvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (isDrawing) {
+                isDrawing = false;
+                saveMaskState();
+            }
+        }, { passive: false });
+
+        window.cancelInpaint = function() {
+            document.getElementById('brushOverlay').classList.add('hidden');
+            document.getElementById('brushOverlay').classList.remove('flex');
+        }
+
+        window.finishInpaint = async function() {
+            const promptValue = "remove object";
+            const maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1];
+            
+            window.cancelInpaint();
+            const isSimple = promptValue.trim().toLowerCase() === "" || ["remove object", "remove", "erase", "delete"].includes(promptValue.trim().toLowerCase());
+            showLoader("REMOVING OBJECT...", isSimple ? 1 : 5);
+            
+            try {
+                const res = await fetchWithAuth('/api/inpaint', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        prompt: promptValue,
+                        image: currentImgBase64.split(',')[1],
+                        mask: maskBase64
+                    })
+                });
+                
+                if (!res.ok) throw new Error('Inpaint failed');
+                const data = await res.json();
+                if (data.image) updateCanvas(data.image);
+            } catch (err) {
+                showToast("Object removal failed", "error");
+            }
+            hideLoader();
+        }
+
+        document.getElementById('btnSuggest').onclick = async () => {
+            showLoader("CONSULTING AI ✨", 2);
+            lastAiAction = 'STRATEGY';
+            try {
+                const data = await callBackendAi('/api/strategy', "Suggest improvements");
+                showAiOutput(data.text);
+                showToast("Strategy ready");
+            } catch (err) {
+                showToast("Failed to get strategy", "error");
+            }
+            hideLoader();
+        };
+
+        document.getElementById('btnCopyAi').onclick = () => {
+            const text = document.getElementById('aiContent').innerText;
+            navigator.clipboard.writeText(text);
+            showToast("Copied to clipboard!");
+        };
+
+        document.getElementById('btnRegenAi').onclick = () => {
+            if (lastAiAction === 'STRATEGY') document.getElementById('btnSuggest').click();
+            else if (lastAiAction === 'CAPTION') document.getElementById('btnCaption').click();
+        };
+
+        document.getElementById('btnCaption').onclick = async () => {
+            showLoader("SYNTHESIZING ✨", 2);
+            lastAiAction = 'CAPTION';
+            try {
+                const data = await callBackendAi('/api/generate', "Write an aesthetic caption");
+                showAiOutput(data.text);
+                showToast("Caption generated");
+            } catch (err) {
+                showToast("Failed to generate caption", "error");
+            }
+            hideLoader();
+        };
+
+        function updateCanvas(base64) {
+            modifiedImgBase64 = base64;
+            const finalUrl = `data:image/png;base64,${base64}`;
+            const img = new Image();
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                showToast("Process complete!");
+                hideLoader();
+            };
+            img.src = finalUrl;
+        }
+
+        document.getElementById('btnExport').onclick = () => {
+            const link = document.createElement('a');
+            link.download = "studio-processed-art.png";
+            link.href = canvas.toDataURL();
+            link.click();
+        };
+
+        let loaderInterval = null;
+        function showLoader(t, estimatedSeconds = 5) {
+            document.getElementById('mainLoader').style.display = 'flex';
+            document.getElementById('loaderText').innerText = t;
+            
+            const progressBar = document.getElementById('loaderProgressBar');
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                let currentProgress = 0;
+                clearInterval(loaderInterval);
+                loaderInterval = setInterval(() => {
+                    if (currentProgress < 90) {
+                        currentProgress += (90 / (estimatedSeconds * 10));
+                        progressBar.style.width = `${currentProgress}%`;
+                    }
+                }, 100);
+            }
+        }
+
+        function hideLoader() {
+            clearInterval(loaderInterval);
+            const progressBar = document.getElementById('loaderProgressBar');
+            if (progressBar) {
+                progressBar.style.width = '100%';
+                setTimeout(() => {
+                    document.getElementById('mainLoader').style.display = 'none';
+                    progressBar.style.width = '0%';
+                }, 300);
+            } else {
+                document.getElementById('mainLoader').style.display = 'none';
+            }
+        }
+
+        function showAiOutput(t) {
+            document.getElementById('aiOutput').classList.remove('hidden');
+            document.getElementById('aiContent').innerText = t;
+        }
+
+        // Initialize router on load
+        navigate(window.location.pathname, false);
+    </script>
+</body>
+</html>
